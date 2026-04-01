@@ -132,7 +132,7 @@ if uploaded_file is not None:
                     continue
 
     # Drop the processed columns from df
-    df.drop(columns=list(columns_to_drop), axis=1, inplace=True)
+    df.drop(columns=list(columns_to_drop), inplace=True)
 
     # Add the remaining columns that were not merged to merged_df
     for col in df.columns:
