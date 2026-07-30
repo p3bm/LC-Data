@@ -41,7 +41,7 @@ with st.expander("Instructions📝"):
     ''')
 
 # Quick explanation
-with st.expander("How dows it work❓"):
+with st.expander("How does it work❓"):
     st.markdown('''
         In case the output data isn't consistent, there is processing pipeline.
         1. File is uploaded to app and converted to DataFrame.
@@ -102,17 +102,19 @@ if uploaded_file is not None:
     merged_df = pd.DataFrame(index=df.index)
     columns_to_drop = set()  # Store columns that should be dropped after merging
 
-    do_merge = st.toggle("Perform peak merge")
+    do_merge = st.toggle("Merge peaks with similar RTs (to account for RT drift across samples)")
 
     if do_merge:
 
+        threshold = st.number_input("Set the threshold for merging peaks", min_value=0.001, max_value=0.100, value=0.020, step=0.001)
+        
         # Iterate through each pair of columns and check for merging condition
         for rt1 in df.columns:
             for rt2 in df.columns:
                 if rt1 != rt2 and rt1 not in columns_to_drop and rt2 not in columns_to_drop:
                     try:
                         # Check the difference between rt1 and rt2 is within the specified range
-                        if abs(float(rt1) - float(rt2)) <= 0.02:
+                        if abs(float(rt1) - float(rt2)) <= threshold:
                             # Check if at least one value in each row across these columns is 0
                             condition = (df[rt1] == 0.0) | (df[rt2] == 0.0)
                             if condition.any():  # If the condition is true for any row
