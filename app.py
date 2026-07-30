@@ -64,11 +64,6 @@ with st.expander("How does it work❓"):
         6. Then simple data export to show and download table.
     ''')
 
-genre = st.radio(
-"Choose your desired output values",
-["Area", "LCAP (%)"],
-captions = ["Get absolute area table", "Get LCAP table"])
-
 uploaded_file = st.file_uploader("Upload your *.txt* file")
 
 # File uploader
@@ -93,7 +88,7 @@ if uploaded_file is not None:
     # Each unique rounded 'RT (mins)' value becomes a column
     pivot_df = df.pivot_table(index='Sample Name', 
                         columns='RT (mins)', 
-                        values=genre)
+                        values="Area")
 
     #Filling NaN values with zero
     pivot_df.fillna(0, inplace=True)
@@ -139,12 +134,51 @@ if uploaded_file is not None:
     merged_df = merged_df.sort_index(axis=1)
     merged_df = merged_df.round(2)
 
-    # Display the final DataFrame in the app
-    st.dataframe(merged_df)
+    calculate_lcap = st.toggle("Calculate LCAP (Relative Peak Area) from the merged data")
+
+    if not calculate_lcap:
+        st.dataframe(merged_df)
+        final_df = merged_df
+    else:
+        # Identify retention time columns
+        numeric_cols = merged_df.select_dtypes(include='number').columns.tolist() # find numeric columns and convert to list
+
+        metadata = merged_df.drop(columns=numeric_cols) # splits into non-peak area info
+        peak_area_data = merged_df[numeric_cols] # splits into just numeric values
+
+        # Creates a single-row DataFrame of checkboxes (True by default)
+        col_selector_df = pd.DataFrame([True] * len(numeric_cols), index=numeric_cols).T 
+        col_selector_df.index = ["Include"]
+
+        st.write("Select Retention Times to Include in LCAP:")
+        edited_selector = st.data_editor(
+            col_selector_df,
+            use_container_width=True,
+            column_config={col: st.column_config.CheckboxColumn(required=True) for col in numeric_cols}
+        )
+
+        # Get selected columns from checkbox row
+        selected_cols = [col for col in numeric_cols if edited_selector.iloc[0][col]]
+
+        if not selected_cols:
+            st.warning("Please select at least one retention time to calculate LCAP.")
+
+        # Calculates LCAP from selected peaks
+        selected_data = peak_area_data[selected_cols]
+        total_areas = selected_data.sum(axis=1)
+        lcap_data = selected_data.div(total_areas, axis=0) * 100
+
+        # combines values with removed metadata
+        final_df = pd.concat([metadata.reset_index(drop=True), lcap_data.reset_index(drop=True)], axis=1)
+        lcap_results = final_df.round(1)
+        st.dataframe(lcap_results)
+
+        final_df = lcap_results
+
     # Download intermediate table
     st.download_button(
         label="Download full table",
-        data=convert_df_to_excel(merged_df),
+        data=convert_df_to_excel(final_df),
         file_name="Area_RT.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
@@ -157,13 +191,13 @@ if uploaded_file is not None:
     
     start_RT, end_RT = st.select_slider(
     'Select a range of retention time, mins',
-    options=merged_df.columns.to_list(),
-    value=(merged_df.columns.min(), merged_df.columns.max()))
+    options=final_df.columns.to_list(),
+    value=(final_df.columns.min(), final_df.columns.max()))
     st.write ('You selected RT starting from', start_RT, 'to', end_RT)
 
     option = st.selectbox(
     'Please select relative peak for RRT calculation,mins (should be within selected range)',
-    (merged_df.columns.to_list()))
+    (final_df.columns.to_list()))
 
     st.write('You selected relative peak:', option)
     #RP check
