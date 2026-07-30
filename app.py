@@ -11,8 +11,8 @@ st.title('SCR-01: LC area txt to xslx 🔁')  # Replace with your script name
 
 # Brief description
 st.markdown('''
-    This *scripts* helps to post-process *txt* file after extracting data by [`exportPeaks.qs`](https://catsciltd-my.sharepoint.com/:u:/g/personal/pavel_elagin_catsci_com/EXPqf-lj-aJBrxlhIReZSpsBitqSQSnV2aoBFW0na1NmYQ?e=pwEcCP).
-    As output you will get Excel table, which you can easily edit for slides. Check with RJ
+    This app helps to post-process the *txt* file exported by the `exportPeaks.qs` script for Mnova. 
+    It outputs a table of peak areas or LCAP values that can be easily copied into Excel.
     ''')
 
 # Spacer after table
@@ -20,64 +20,54 @@ st.markdown('''
     ''')
 
 # Quick instruction
-with st.expander("Quick instruction📝"):
+with st.expander("Instructions📝"):
     st.markdown('''
-        1. Download all your *.mnova* files from Signals to one folder.
+        1. Download all of your *.mnova* files from Signals/LOGS to one folder.
         2. Open MestReNova
-            - Select *"Tools"* tab
+            - Select the *"Tools"* tab
             - *Import* -> "Multi-Open Wildcard..."
-            - In the new window that opens, select folder where you saved all files and put `*.mnova` at empty box.
-            - Don't forget to tick box "Open Mnova Files into a Single Document"
+            - In the new window that opens, select the folder where you saved all files and put `*.mnova` in the empty box.
+            - Tick "Open Mnova Files into a Single Document"
             - Wait ⌛
-        3. You can edit integration or keep it as it is. Press folder icon "Run Script" at same *"Tools"* tab.
-        4. Find and open saved script `exportPeaks.qs`
+        3. You can edit the integrations or keep them as they are. Click the folder icon "Run Script" in the same *"Tools"* tab.
+        4. Find and open the saved script `exportPeaks.qs`
         5. Save *txt file*.
-        6. Upload this *txt file* to this app as it is, enjoy your Excel table😊\\
+        6. Upload this *txt file* to this app as it is and enjoy your Excel table😊\\
         **Creation of SP3 table**
-        1. You can create SP3 table based on previous outcome. For it you need to define starting RT peak and ending RT peak that you would like to present into table.
-        2. Use slider to define the range, the border value will be included.
-        3. Define the reference peak from the list (which automatically prepared from index row)
-        4. Push the button, enjoy SP3 table.
+        1. You can create an SP3 table based on the previous output. To do so, you need to define the start and end RT that you would like to include.
+        2. Use the slider to define the range, the border value will be included.
+        3. Define the reference peak from the list.
+        4. Push the button, enjoy your SP3 table.
     ''')
 
 # Quick explanation
-with st.expander("How it exactly works❓"):
+with st.expander("How dows it work❓"):
     st.markdown('''
-        In case if output data isn't consistent or maybe wrong, there is processing pipeline.
-        1. File is uploaded to script and converted to DataFrame.
-        2. Script checks which opton was selected at radiobox and then parse "Area" or "LCAP" column.
+        In case the output data isn't consistent, there is processing pipeline.
+        1. File is uploaded to app and converted to DataFrame.
+        2. App checks which opton was selected in the radiobox and then parses the "Area" or "LCAP" column.
         2. It parses only "Sample", "RT (mins)" and "Area or LCAP" column and ignores "Peak Label".
         3. "RT (mins)" are rounded to the second decimal places (e.g. 1.23).
-        4. Table is transposed and grouped by "Sample" index and "RTs" columns.
-        5. All absent data is filled by zeros. It happens when peak is absent at one sample and presented at other.
-        6. Hard part. To solve problem of little peak shifting. It compares the "RTs" and if difference is ≤0.02 - columns are merged.
-        The final RT is highest. After merging 3.25 and 3.26, it will keep only 3.26.
+        4. The table is transposed and grouped by "Sample" index and "RTs" columns.
+        5. All absent data is filled by zeros. It happens when a peak is absent in one sample but present in another.
+        6. Hard part: To solve the problem of peak drift between samples. The app compares the "RTs" and if the difference is ≤0.02, the columns are merged.
+        The final RT is the highest of the two. After merging 3.25 and 3.26 mins columns, it will keep only 3.26.
         Merge works only if at least one value in each row across these columns is 0.
-        So if MGears integrated big lump for two peaks. Both of them will be reported.
         7. It then drops the excess columns that are no longer needed after the merge.
-        8. And finally it exports DataFrame (which shown on the screen) to Excel that you can download 🔚\\
+        8. And finally it exports the DataFrame (which is shown on the screen) to Excel that you can download 🔚\\
         **Creation of SP3 table**
-        1. Then scipt takes the index row of table and convert it to the list.
-        2. After that it creates slider based on previous list. Which is then take values to next code lines.
+        1. Then the app takes the index row of table and converts it to a list.
+        2. After that it creates a slider based on this list.
         3. Additional selection of reference peak is depends on the list from step 1. Then it takes input value.
         4. Range and refernce values are saved to the variable and taken into account after pressing button.
         5. During processing script delete excess column amd then recalculate LCAP based on it's total sum of row.
         6. Then simple data export to show and download table.
     ''')
 
-# Feedback collection
-st.info(
-    """
-    Need a feature that's not on here? Or script raised :red[error]?
-    [Let us know by filling response form](https://forms.office.com/e/xJ7ibpf5jR)
-    """,
-    icon="⚗️",
-)
-
 genre = st.radio(
-"Choose your target values at table",
+"Choose your desired output values",
 ["Area", "LCAP (%)"],
-captions = ["Get absolute area table", "Get LCAP table generated by MestReNova"])
+captions = ["Get absolute area table", "Get LCAP table"])
 
 uploaded_file = st.file_uploader("Upload your *.txt* file")
 
@@ -112,27 +102,31 @@ if uploaded_file is not None:
     merged_df = pd.DataFrame(index=df.index)
     columns_to_drop = set()  # Store columns that should be dropped after merging
 
-    # Iterate through each pair of columns and check for merging condition
-    for rt1 in df.columns:
-        for rt2 in df.columns:
-            if rt1 != rt2 and rt1 not in columns_to_drop and rt2 not in columns_to_drop:
-                try:
-                    # Check the difference between rt1 and rt2 is within the specified range
-                    if abs(float(rt1) - float(rt2)) <= 0.02:
-                        # Check if at least one value in each row across these columns is 0
-                        condition = (df[rt1] == 0.0) | (df[rt2] == 0.0)
-                        if condition.any():  # If the condition is true for any row
-                            # Sum the columns and use the higher RT value as the column name
-                            new_col_name = max(rt1, rt2, key=lambda x: float(x))
-                            merged_df[new_col_name] = df[[rt1, rt2]].sum(axis=1)
-                            # Mark columns for dropping
-                            columns_to_drop.update([rt1, rt2])
-                except ValueError:
-                    # Handle cases where rt1 or rt2 cannot be converted to float
-                    continue
+    do_merge = st.toggle("Perform peak merge")
 
-    # Drop the processed columns from df
-    df.drop(columns=list(columns_to_drop), inplace=True)
+    if do_merge:
+
+        # Iterate through each pair of columns and check for merging condition
+        for rt1 in df.columns:
+            for rt2 in df.columns:
+                if rt1 != rt2 and rt1 not in columns_to_drop and rt2 not in columns_to_drop:
+                    try:
+                        # Check the difference between rt1 and rt2 is within the specified range
+                        if abs(float(rt1) - float(rt2)) <= 0.02:
+                            # Check if at least one value in each row across these columns is 0
+                            condition = (df[rt1] == 0.0) | (df[rt2] == 0.0)
+                            if condition.any():  # If the condition is true for any row
+                                # Sum the columns and use the higher RT value as the column name
+                                new_col_name = max(rt1, rt2, key=lambda x: float(x))
+                                merged_df[new_col_name] = df[[rt1, rt2]].sum(axis=1)
+                                # Mark columns for dropping
+                                columns_to_drop.update([rt1, rt2])
+                    except ValueError:
+                        # Handle cases where rt1 or rt2 cannot be converted to float
+                        continue
+    
+        # Drop the processed columns from df
+        df.drop(columns=list(columns_to_drop), inplace=True)
 
     # Add the remaining columns that were not merged to merged_df
     for col in df.columns:
