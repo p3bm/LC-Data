@@ -106,7 +106,7 @@ if uploaded_file is not None:
 
     if do_merge:
 
-        threshold = st.number_input("Set the threshold for merging peaks", min_value=0.001, max_value=0.100, value=0.020, step=0.001, format="%0.001f")
+        threshold = st.number_input("Set the threshold for merging peaks", min_value=0.001, max_value=0.100, value=0.020, step=0.001, format="%0.3f")
         
         # Iterate through each pair of columns and check for merging condition
         for rt1 in df.columns:
