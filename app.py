@@ -82,7 +82,7 @@ if uploaded_file is not None:
     # Read the uploaded file
     df = pd.read_csv(uploaded_file, sep='\t', engine='python')
     # Rounding the 'RT (mins)' column to the nearest hundredth
-    df['RT (mins)'] = df['RT (mins)'].round(2)
+    df['RT (mins)'] = df['RT (mins)'].round(3)
 
     # Pivoting the DataFrame
     # Each unique rounded 'RT (mins)' value becomes a column
