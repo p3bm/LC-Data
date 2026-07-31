@@ -134,10 +134,7 @@ if uploaded_file is not None:
     merged_df = merged_df.sort_index(axis=1)
     merged_df = merged_df.round(2)
     
-    for col in merged_df.columns:
-        old_name = col
-        new_name = "RT " + str(round(col,2))
-        merged_df = merged_df.rename(columns={old_name:new_name})
+    merged_df.rename(columns={col: f"RT {col:.2f}" for col in merged_df.columns},inplace=True)
 
     calculate_lcap = st.toggle("Calculate LCAP (Relative Peak Area) from the merged data")
 
