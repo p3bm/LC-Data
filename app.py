@@ -101,7 +101,7 @@ if uploaded_file is not None:
 
     if do_merge:
 
-        threshold = st.number_input("Set the threshold for merging peaks", min_value=0.001, max_value=0.100, value=0.020, step=0.001, format="%0.3f")
+        threshold = st.number_input("Set the threshold for merging peaks (in minutes)", min_value=0.001, max_value=0.100, value=0.020, step=0.001, format="%0.3f")
         
         # Iterate through each pair of columns and check for merging condition
         for rt1 in df.columns:
@@ -170,8 +170,8 @@ if uploaded_file is not None:
         lcap_data = selected_data.div(total_areas, axis=0) * 100
 
         # combines values with removed metadata
-        final_df = pd.concat([metadata.reset_index(drop=True), lcap_data.reset_index(drop=True)], axis=1)
-        lcap_results = final_df.round(1)
+        combined_df = pd.concat([metadata.reset_index(drop=True), lcap_data.reset_index(drop=True)], axis=1)
+        lcap_results = combined_df.round(1)
         st.dataframe(lcap_results)
 
         final_df = lcap_results
