@@ -167,10 +167,6 @@ if uploaded_file is not None:
         total_areas = selected_data.sum(axis=1)
         lcap_data = selected_data.div(total_areas, axis=0) * 100
 
-        # combines values with removed metadata
-        #st.dataframe(metadata)
-        #combined_df = pd.concat([metadata.reset_index(drop=True), lcap_data.reset_index(drop=True)], axis=1)
-        #st.dataframe(combined_df)
         lcap_results = lcap_data.round(1)
         st.dataframe(lcap_results)
 
