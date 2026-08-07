@@ -228,7 +228,13 @@ if uploaded_file is not None:
         new_columns = [round(col / option, 2) if isinstance(col, (int, float)) else col for col in original_columns]
 
         # Create a MultiIndex
-        multi_index = pd.MultiIndex.from_arrays([original_columns, new_columns], names=['RT', 'RRT'])
+        multi_index = pd.MultiIndex.from_arrays(
+            [
+                [f"RT {rt}" for rt in original_columns], 
+                [f"RRT {rrt}" for rrt in new_columns]
+            ], 
+            names=['RT', 'RRT']
+        )
 
         # Set MultiIndex for the columns
         selected_data.columns = multi_index
