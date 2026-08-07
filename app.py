@@ -211,6 +211,8 @@ if uploaded_file is not None:
 
     if st.button('Generate SP3 table'):        
         # Select range of columns by min and max value and delete the rest
+        st.write(type(start_RT), start_RT)
+        st.write(type(end_RT), end_RT)
         selected_columns = [col for col in merged_df.columns if isinstance(col, (int, float)) and start_RT <= col <= end_RT]
         selected_data = merged_df[selected_columns]
 
