@@ -72,6 +72,11 @@ uploaded_file = st.file_uploader("Upload your *.txt* file")
 @st.cache_data
 def convert_df_to_excel(df):
     output = BytesIO()
+    output_df = df.copy()
+
+    if isinstance(export_df.columns, pd.MultiIndex):
+        export_df.columns = [f"RT {rt} | RRT {rrt}" for rt, rrt in export_df.columns]
+    
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=True)
         writer.book.close()  # Save the workbook
