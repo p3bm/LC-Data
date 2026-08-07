@@ -193,7 +193,7 @@ if uploaded_file is not None:
     LCAP=\frac{A_{i}}{ \sum A }\qquad RRT= \frac{RT_{analyte}}{RT_{reference}}
     ''')
 
-    fnial_df.columns = [float(col.split("RT ")[-1]) for col in final_df.columns]
+    final_df.columns = [float(col.split("RT ")[-1]) for col in final_df.columns]
     
     start_RT, end_RT = st.select_slider(
     'Select a range of retention time, mins',
