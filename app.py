@@ -139,17 +139,17 @@ if uploaded_file is not None:
     merged_df = merged_df.sort_index(axis=1)
     merged_df = merged_df.round(2)
     
-    merged_df.rename(columns={col: f"RT {col:.2f}" for col in merged_df.columns},inplace=True)
+    merged_df_display = merged_df.rename(columns={col: f"RT {col:.2f}" for col in merged_df.columns})
 
     calculate_lcap = st.toggle("Calculate LCAP (Relative Peak Area) from the merged data")
 
     if not calculate_lcap:
-        st.dataframe(merged_df)
-        final_df = merged_df
+        st.dataframe(merged_df_display)
+        final_df = merged_df_display
     else:
         # Identify retention time columns
-        numeric_cols = merged_df.select_dtypes(include='number').columns.tolist() # find numeric columns and convert to list
-        peak_area_data = merged_df[numeric_cols] # splits into just numeric values
+        numeric_cols = merged_df_display.select_dtypes(include='number').columns.tolist() # find numeric columns and convert to list
+        peak_area_data = merged_df_display[numeric_cols] # splits into just numeric values
 
         # Creates a single-row DataFrame of checkboxes (True by default)
         col_selector_df = pd.DataFrame([True] * len(numeric_cols), index=numeric_cols).T 
@@ -208,9 +208,7 @@ if uploaded_file is not None:
     if not start_RT <= option <= end_RT:
         st.error(f'Relative time {option} is outside the range!')
 
-    if st.button('Generate SP3 table'):
-        merged_df.columns = [f"RT {col:.2f}" for col in merged_df.columns]
-        
+    if st.button('Generate SP3 table'):        
         # Select range of columns by min and max value and delete the rest
         selected_columns = [col for col in merged_df.columns if isinstance(col, (int, float)) and start_RT <= col <= end_RT]
         selected_data = merged_df[selected_columns]
