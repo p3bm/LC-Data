@@ -74,8 +74,8 @@ def convert_df_to_excel(df):
     output = BytesIO()
     output_df = df.copy()
 
-    if isinstance(output_df.columns, pd.MultiIndex):
-        output_df.columns = [f"RT {rt} | RRT {rrt}" for rt, rrt in output_df.columns]
+    #if isinstance(output_df.columns, pd.MultiIndex):
+    #    output_df.columns = [f"RT {rt} | RRT {rrt}" for rt, rrt in output_df.columns]
     
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         output_df.to_excel(writer, index=True)
