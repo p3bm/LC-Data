@@ -209,6 +209,8 @@ if uploaded_file is not None:
         st.error(f'Relative time {option} is outside the range!')
 
     if st.button('Generate SP3 table'):
+        merged_df.columns = [f"RT {col:.2f}" for col in merged_df.columns]
+        
         # Select range of columns by min and max value and delete the rest
         selected_columns = [col for col in merged_df.columns if isinstance(col, (int, float)) and start_RT <= col <= end_RT]
         selected_data = merged_df[selected_columns]
