@@ -199,6 +199,9 @@ if uploaded_file is not None:
     value=(final_df.columns.min(), final_df.columns.max()))
     st.write ('You selected RT starting from', start_RT, 'to', end_RT)
 
+    start_RT = float(start_RT)
+    end_RT = float(end_RT)
+
     option = st.selectbox(
     'Please select relative peak for RRT calculation,mins (should be within selected range)',
     (final_df.columns.to_list()))
@@ -211,8 +214,6 @@ if uploaded_file is not None:
 
     if st.button('Generate SP3 table'):        
         # Select range of columns by min and max value and delete the rest
-        st.write(type(start_RT), start_RT)
-        st.write(type(end_RT), end_RT)
         selected_columns = [col for col in merged_df.columns if isinstance(col, (int, float)) and start_RT <= col <= end_RT]
         selected_data = merged_df[selected_columns]
 
