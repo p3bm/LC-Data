@@ -192,15 +192,14 @@ if uploaded_file is not None:
     st.latex(r'''
     LCAP=\frac{A_{i}}{ \sum A }\qquad RRT= \frac{RT_{analyte}}{RT_{reference}}
     ''')
+
+    fnial_df.columns = [float(col.split("RT ")[-1]) for col in final_df.columns]
     
     start_RT, end_RT = st.select_slider(
     'Select a range of retention time, mins',
     options=final_df.columns.to_list(),
     value=(final_df.columns.min(), final_df.columns.max()))
     st.write ('You selected RT starting from', start_RT, 'to', end_RT)
-
-    start_RT = float(start_RT)
-    end_RT = float(end_RT)
 
     option = st.selectbox(
     'Please select relative peak for RRT calculation,mins (should be within selected range)',
