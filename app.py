@@ -145,7 +145,7 @@ if uploaded_file is not None:
     calculate_lcap = st.toggle("Calculate LCAP (Relative Peak Area) from the merged data")
 
     if not calculate_lcap:
-        st.dataframe(merged_df_display.sort_values(by='Sample Name', ascending=True))
+        st.dataframe(merged_df_display)
         final_df = merged_df_display
     else:
         # Identify retention time columns
@@ -175,7 +175,7 @@ if uploaded_file is not None:
         lcap_data = selected_data.div(total_areas, axis=0) * 100
 
         lcap_results = lcap_data.round(1)
-        final_df = lcap_results.sort_values(by='Sample Name', ascending=True)
+        final_df = lcap_results
         st.dataframe(final_df)
 
     # Download intermediate table
