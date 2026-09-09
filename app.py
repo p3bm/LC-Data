@@ -174,7 +174,7 @@ if uploaded_file is not None:
         total_areas = selected_data.sum(axis=1)
         lcap_data = selected_data.div(total_areas, axis=0) * 100
 
-        lcap_results = lcap_data.round(1)
+        lcap_results = lcap_data.round(2)
         final_df = lcap_results
         st.dataframe(final_df)
 
