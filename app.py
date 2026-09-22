@@ -1,5 +1,4 @@
 import streamlit as st
-from PIL import Image
 import pandas as pd
 from io import BytesIO
 
@@ -45,22 +44,26 @@ with st.expander("How does it work❓"):
     st.markdown('''
         In case the output data isn't consistent, there is processing pipeline.
         1. File is uploaded to app and converted to DataFrame.
-        2. App checks which opton was selected in the radiobox and then parses the "Area" or "LCAP" column.
-        2. It parses only "Sample", "RT (mins)" and "Area or LCAP" column and ignores "Peak Label".
+        2. It parses only "Sample Name", "RT (mins)" and "Area" columns and ignores "Peak Label" and the file's own "LCAP (%)" column.
+        LCAP is always calculated by this app from the Area values, not read from the file.
         3. "RT (mins)" are rounded to the second decimal places (e.g. 1.23).
-        4. The table is transposed and grouped by "Sample" index and "RTs" columns.
+        4. The table is transposed and grouped by "Sample" index and "RTs" columns. If two peaks in the same sample round to the
+        same RT, their areas are summed and you'll see a warning listing the affected samples.
         5. All absent data is filled by zeros. It happens when a peak is absent in one sample but present in another.
-        6. Hard part: To solve the problem of peak drift between samples. The app compares the "RTs" and if the difference is ≤0.02, the columns are merged.
-        The final RT is the highest of the two. After merging 3.25 and 3.26 mins columns, it will keep only 3.26.
-        Merge works only if at least one value in each row across these columns is 0.
+        6. Hard part: To solve the problem of peak drift between samples. The app compares neighbouring "RTs" (sorted) and if the
+        difference is ≤ the threshold you set, the columns are merged, chaining together runs of drifting peaks (e.g. 3.20, 3.21, 3.22).
+        The final RT is the highest in the group. Merging only happens where at least one value in each row across the pair being
+        compared is 0, so two genuinely co-occurring peaks won't be merged into one.
         7. It then drops the excess columns that are no longer needed after the merge.
         8. And finally it exports the DataFrame (which is shown on the screen) to Excel that you can download 🔚\\
         **Creation of SP3 table**
         1. Then the app takes the index row of table and converts it to a list.
         2. After that it creates a slider based on this list.
         3. Additional selection of reference peak is depends on the list from step 1. Then it takes input value.
-        4. Range and refernce values are saved to the variable and taken into account after pressing button.
-        5. During processing script delete excess column amd then recalculate LCAP based on it's total sum of row.
+        4. Range and refernce values are saved to the variable and taken into account after pressing button. The reference peak
+        must fall inside the selected range, and the button only appears once it does.
+        5. During processing script deletes excess columns (keeping only the same peaks included in the table above) amd then
+        recalculates LCAP based on it's total sum of row.
         6. Then simple data export to show and download table.
     ''')
 
@@ -85,15 +88,45 @@ def convert_df_to_excel(df):
 
 if uploaded_file is not None:
     # Read the uploaded file
-    df = pd.read_csv(uploaded_file, sep='\t', engine='python')
+    try:
+        df = pd.read_csv(uploaded_file, sep='\t', engine='python')
+    except Exception as e:
+        st.error(f"Could not read the uploaded file: {e}")
+        st.stop()
+
+    required_columns = {'Sample Name', 'RT (mins)', 'Area'}
+    missing_columns = required_columns - set(df.columns)
+    if missing_columns:
+        st.error(
+            f"The uploaded file is missing required column(s): {', '.join(sorted(missing_columns))}. "
+            "Please upload the txt file exported by exportPeaks.qs without modification."
+        )
+        st.stop()
+
     # Rounding the 'RT (mins)' column to the nearest hundredth
     df['RT (mins)'] = df['RT (mins)'].round(2)
 
+    # Warn if multiple peaks in the same sample round to the same RT - their areas will be summed
+    dup_mask = df.duplicated(subset=['Sample Name', 'RT (mins)'], keep=False)
+    if dup_mask.any():
+        dup_pairs = (
+            df.loc[dup_mask, ['Sample Name', 'RT (mins)']]
+            .drop_duplicates()
+            .sort_values(['Sample Name', 'RT (mins)'])
+        )
+        dup_list = "\n".join(f"- {row['Sample Name']}: RT {row['RT (mins)']:.2f}" for _, row in dup_pairs.iterrows())
+        st.warning(
+            "Some samples have multiple peaks that round to the same RT (mins) value. "
+            "Their areas have been summed together for that RT:\n\n" + dup_list
+        )
+
     # Pivoting the DataFrame
-    # Each unique rounded 'RT (mins)' value becomes a column
-    pivot_df = df.pivot_table(index='Sample Name', 
-                        columns='RT (mins)', 
-                        values="Area")
+    # Each unique rounded 'RT (mins)' value becomes a column. Peaks that round to the
+    # same RT within a sample (see warning above, if any) are summed rather than averaged.
+    pivot_df = df.pivot_table(index='Sample Name',
+                        columns='RT (mins)',
+                        values="Area",
+                        aggfunc='sum')
 
     #Filling NaN values with zero
     pivot_df.fillna(0, inplace=True)
@@ -107,26 +140,43 @@ if uploaded_file is not None:
     if do_merge:
 
         threshold = st.number_input("Set the threshold for merging peaks (in minutes)", min_value=0.001, max_value=0.100, value=0.020, step=0.001, format="%0.3f")
-        
-        # Iterate through each pair of columns and check for merging condition
-        for rt1 in df.columns:
-            for rt2 in df.columns:
-                if rt1 != rt2 and rt1 not in columns_to_drop and rt2 not in columns_to_drop:
-                    try:
-                        # Check the difference between rt1 and rt2 is within the specified range
-                        if abs(float(rt1) - float(rt2)) <= threshold:
-                            # Check if at least one value in each row across these columns is 0
-                            condition = (df[rt1] == 0.0) | (df[rt2] == 0.0)
-                            if condition.any():  # If the condition is true for any row
-                                # Sum the columns and use the higher RT value as the column name
-                                new_col_name = max(rt1, rt2, key=lambda x: float(x))
-                                merged_df[new_col_name] = df[[rt1, rt2]].sum(axis=1)
-                                # Mark columns for dropping
-                                columns_to_drop.update([rt1, rt2])
-                    except ValueError:
-                        # Handle cases where rt1 or rt2 cannot be converted to float
-                        continue
-    
+
+        # Sort RTs and only compare neighbours, unioning runs of drifting peaks together
+        # (e.g. 3.20, 3.21, 3.22 all merge into one column) rather than only merging pairs.
+        sorted_rts = sorted(df.columns, key=float)
+        parent = list(range(len(sorted_rts)))
+
+        def find(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        def union(i, j):
+            ri, rj = find(i), find(j)
+            if ri != rj:
+                parent[ri] = rj
+
+        for i in range(len(sorted_rts) - 1):
+            rt1, rt2 = sorted_rts[i], sorted_rts[i + 1]
+            # Check the difference between neighbouring RTs is within the specified range
+            if abs(float(rt1) - float(rt2)) <= threshold:
+                # Check if at least one value in each row across these columns is 0
+                condition = (df[rt1] == 0.0) | (df[rt2] == 0.0)
+                if condition.any():  # If the condition is true for any row
+                    union(i, i + 1)
+
+        groups = {}
+        for i, rt in enumerate(sorted_rts):
+            groups.setdefault(find(i), []).append(rt)
+
+        for cols in groups.values():
+            if len(cols) > 1:
+                # Sum the columns and use the highest RT value in the group as the column name
+                new_col_name = max(cols, key=lambda x: float(x))
+                merged_df[new_col_name] = df[cols].sum(axis=1)
+                columns_to_drop.update(cols)
+
         # Drop the processed columns from df
         df.drop(columns=list(columns_to_drop), inplace=True)
 
@@ -207,21 +257,26 @@ if uploaded_file is not None:
     st.write('You selected relative peak:', option)
     #RP check
 
-    if not start_RT <= option <= end_RT:
-        st.error(f'Relative time {option} is outside the range!')
+    reference_in_range = start_RT <= option <= end_RT
+    if not reference_in_range:
+        st.error(f'Relative time {option} is outside the range! Adjust the range or reference peak to continue.')
 
-    if st.button('Generate SP3 table'):        
-        # Select range of columns by min and max value and delete the rest
-        selected_columns = [col for col in merged_df.columns if isinstance(col, (int, float)) and start_RT <= col <= end_RT]
-        selected_data = merged_df[selected_columns]
+    if reference_in_range and st.button('Generate SP3 table'):
+        # Only include peaks that were part of the table above (respecting any LCAP
+        # peak exclusions), restricted to the selected RT range.
+        included_rts = set(final_df.columns.to_list())
+        selected_columns = [
+            col for col in merged_df.columns
+            if isinstance(col, (int, float)) and col in included_rts and start_RT <= col <= end_RT
+        ]
+        selected_data = merged_df[selected_columns].copy()
 
         # Calculate the sum of each row, find the ratio, and convert to percentage
-        row_sums = selected_data.iloc[:,:].sum(axis=1)
-        for col in selected_columns:
-            selected_data.loc[:, col] = (selected_data[col] / row_sums) * 100
+        row_sums = selected_data.sum(axis=1)
+        selected_data = selected_data.div(row_sums, axis=0) * 100
 
         selected_data = selected_data.round(2)
-        
+
         #Calulate RRT
         original_columns = selected_data.columns.tolist()
         new_columns = [round(col / option, 2) if isinstance(col, (int, float)) else col for col in original_columns]
