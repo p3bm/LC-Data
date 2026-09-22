@@ -1,6 +1,88 @@
+import re
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+
+# m/z values within this many units are treated as the same compound when
+# comparing peak labels (distinct compounds are typically much further apart
+# than the noise between repeated measurements of the same one).
+MASS_MATCH_TOLERANCE = 0.3
+
+MZ_PATTERN = re.compile(r"m/z\s*([\d.]+)", re.IGNORECASE)
+
+
+def parse_mass(label):
+    """Return the m/z value in a Peak Label like 'm/z 351.30', or None if it isn't one."""
+    if label is None:
+        return None
+    match = MZ_PATTERN.search(str(label))
+    return float(match.group(1)) if match else None
+
+
+def cluster_within_tolerance(values, tol):
+    """Group sorted numeric values into clusters where neighbours are within tol of each other."""
+    values = sorted(values)
+    clusters = []
+    current = []
+    for v in values:
+        if current and v - current[-1] > tol:
+            clusters.append(current)
+            current = []
+        current.append(v)
+    if current:
+        clusters.append(current)
+    return clusters
+
+
+def summarize_labels(labels, tol=MASS_MATCH_TOLERANCE):
+    """Reduce the Peak Labels seen for one RT (across all samples, blanks excluded) to a
+    single display label, plus a warning string if the labels didn't agree."""
+    masses, texts = [], []
+    for label in labels:
+        mass = parse_mass(label)
+        if mass is not None:
+            masses.append(mass)
+        else:
+            text = str(label).strip()
+            if text:
+                texts.append(text)
+
+    if masses:
+        clusters = sorted(cluster_within_tolerance(masses, tol), key=len, reverse=True)
+        best_mass = sum(clusters[0]) / len(clusters[0])
+        display_label = f"m/z {best_mass:.2f}"
+        if len(clusters) == 1:
+            return display_label, None
+        other_masses = ", ".join(f"{sum(c) / len(c):.2f}" for c in clusters[1:])
+        return display_label, f"conflicting m/z values ({best_mass:.2f} vs {other_masses}) - showing the most common"
+
+    if texts:
+        distinct = list(dict.fromkeys(texts))  # unique, preserving order
+        if len(distinct) == 1:
+            return distinct[0], None
+        return " + ".join(distinct), f"labels disagree ({', '.join(distinct)}) - showing combined label"
+
+    return "", None
+
+
+def with_label_header(display_df, label_map):
+    """Return a copy of display_df with a second column-header row showing each RT's label."""
+    if not label_map:
+        return display_df
+
+    def label_for(col):
+        try:
+            rt = float(str(col).split("RT ")[-1])
+        except ValueError:
+            return ""
+        return label_map.get(rt, "")
+
+    out = display_df.copy()
+    out.columns = pd.MultiIndex.from_tuples(
+        [(col, label_for(col)) for col in out.columns],
+        names=["RT", "Label"]
+    )
+    return out
 
 # Logo on top left
 st.image('./catsci-logo.svg', width=200)  # Adjust width as needed
@@ -44,7 +126,7 @@ with st.expander("How does it work❓"):
     st.markdown('''
         In case the output data isn't consistent, there is processing pipeline.
         1. File is uploaded to app and converted to DataFrame.
-        2. It parses only "Sample Name", "RT (mins)" and "Area" columns and ignores "Peak Label" and the file's own "LCAP (%)" column.
+        2. It parses "Sample Name", "RT (mins)", "Area" and (if present) "Peak Label" columns, and ignores the file's own "LCAP (%)" column.
         LCAP is always calculated by this app from the Area values, not read from the file.
         3. "RT (mins)" are rounded to the second decimal places (e.g. 1.23).
         4. The table is transposed and grouped by "Sample" index and "RTs" columns. If two peaks in the same sample round to the
@@ -53,9 +135,15 @@ with st.expander("How does it work❓"):
         6. Hard part: To solve the problem of peak drift between samples. The app compares neighbouring "RTs" (sorted) and if the
         difference is ≤ the threshold you set, the columns are merged, chaining together runs of drifting peaks (e.g. 3.20, 3.21, 3.22).
         The final RT is the highest in the group. Merging only happens where at least one value in each row across the pair being
-        compared is 0, so two genuinely co-occurring peaks won't be merged into one.
+        compared is 0, so two genuinely co-occurring peaks won't be merged into one. If "Peak Label" values look like m/z (e.g.
+        "m/z 351.30") for both RTs, they must also agree (within 0.3) or the peaks won't be merged, since it's then unclear
+        which mass to keep.
         7. It then drops the excess columns that are no longer needed after the merge.
-        8. And finally it exports the DataFrame (which is shown on the screen) to Excel that you can download 🔚\\
+        8. If a "Peak Label" column was present, each RT column gets a label underneath it: the most common m/z value seen for
+        that RT, or - if the labels are text descriptors rather than masses - the descriptor if all samples agree, otherwise
+        the distinct descriptors joined with "+" (e.g. "SM + solvent"). Either way, any disagreement is flagged in a warning
+        below the table.
+        9. And finally it exports the DataFrame (which is shown on the screen) to Excel that you can download 🔚\\
         **Creation of SP3 table**
         1. Then the app takes the index row of table and converts it to a list.
         2. After that it creates a slider based on this list.
@@ -77,9 +165,6 @@ def convert_df_to_excel(df):
     output = BytesIO()
     output_df = df.copy()
 
-    #if isinstance(output_df.columns, pd.MultiIndex):
-    #    output_df.columns = [f"RT {rt} | RRT {rrt}" for rt, rrt in output_df.columns]
-    
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         output_df.to_excel(writer, index=True)
         writer.book.close()  # Save the workbook
@@ -105,6 +190,14 @@ if uploaded_file is not None:
 
     # Rounding the 'RT (mins)' column to the nearest hundredth
     df['RT (mins)'] = df['RT (mins)'].round(2)
+
+    # Collect the Peak Label seen for each RT bucket, across all samples, for use below
+    # (as a header row and as a check before merging drifting peaks). Optional column.
+    has_labels = 'Peak Label' in df.columns
+    labels_by_rt = {}
+    if has_labels:
+        for rt, group in df.groupby('RT (mins)')['Peak Label']:
+            labels_by_rt[rt] = [l for l in group if pd.notna(l) and str(l).strip() != '']
 
     # Warn if multiple peaks in the same sample round to the same RT - their areas will be summed
     dup_mask = df.duplicated(subset=['Sample Name', 'RT (mins)'], keep=False)
@@ -134,6 +227,7 @@ if uploaded_file is not None:
     df=pivot_df
     merged_df = pd.DataFrame(index=df.index)
     columns_to_drop = set()  # Store columns that should be dropped after merging
+    source_rts_by_final_col = {}  # Maps each final RT column back to the pre-merge RT(s) it came from
 
     do_merge = st.toggle("Merge peaks with similar RTs (to account for RT drift across samples)")
 
@@ -161,6 +255,12 @@ if uploaded_file is not None:
             rt1, rt2 = sorted_rts[i], sorted_rts[i + 1]
             # Check the difference between neighbouring RTs is within the specified range
             if abs(float(rt1) - float(rt2)) <= threshold:
+                # If both RTs have a known mass, don't merge them unless the masses agree -
+                # a close RT with a clearly different mass is a different compound.
+                masses1 = [m for m in (parse_mass(l) for l in labels_by_rt.get(rt1, [])) if m is not None]
+                masses2 = [m for m in (parse_mass(l) for l in labels_by_rt.get(rt2, [])) if m is not None]
+                if masses1 and masses2 and not any(abs(m1 - m2) <= MASS_MATCH_TOLERANCE for m1 in masses1 for m2 in masses2):
+                    continue
                 # Check if at least one value in each row across these columns is 0
                 condition = (df[rt1] == 0.0) | (df[rt2] == 0.0)
                 if condition.any():  # If the condition is true for any row
@@ -171,10 +271,11 @@ if uploaded_file is not None:
             groups.setdefault(find(i), []).append(rt)
 
         for cols in groups.values():
+            final_col = max(cols, key=lambda x: float(x)) if len(cols) > 1 else cols[0]
+            source_rts_by_final_col[final_col] = cols
             if len(cols) > 1:
                 # Sum the columns and use the highest RT value in the group as the column name
-                new_col_name = max(cols, key=lambda x: float(x))
-                merged_df[new_col_name] = df[cols].sum(axis=1)
+                merged_df[final_col] = df[cols].sum(axis=1)
                 columns_to_drop.update(cols)
 
         # Drop the processed columns from df
@@ -184,18 +285,32 @@ if uploaded_file is not None:
     for col in df.columns:
         if col not in merged_df:
             merged_df[col] = df[col]
+        source_rts_by_final_col.setdefault(col, [col])
 
     # Sort the columns as they might be out of order after merging
     merged_df = merged_df.sort_index(axis=1)
     merged_df = merged_df.round(2)
-    
+
+    # Reduce each final column's source Peak Labels to a single display label, flagging
+    # any RT where the labels didn't agree.
+    label_map = {}
+    label_warnings = []
+    if has_labels:
+        for col in merged_df.columns:
+            labels = [l for rt in source_rts_by_final_col.get(col, [col]) for l in labels_by_rt.get(rt, [])]
+            display_label, warning = summarize_labels(labels)
+            if display_label:
+                label_map[col] = display_label
+            if warning:
+                label_warnings.append(f"RT {col:.2f}: {warning}")
+
     merged_df_display = merged_df.copy()
     merged_df_display.columns = [f"RT {col:.2f}" for col in merged_df_display.columns]
 
     calculate_lcap = st.toggle("Calculate LCAP (Relative Peak Area) from the merged data")
 
     if not calculate_lcap:
-        st.dataframe(merged_df_display)
+        st.dataframe(with_label_header(merged_df_display, label_map))
         final_df = merged_df_display
     else:
         # Identify retention time columns
@@ -203,14 +318,22 @@ if uploaded_file is not None:
         peak_area_data = merged_df_display[numeric_cols] # splits into just numeric values
 
         # Creates a single-row DataFrame of checkboxes (True by default)
-        col_selector_df = pd.DataFrame([True] * len(numeric_cols), index=numeric_cols).T 
+        col_selector_df = pd.DataFrame([True] * len(numeric_cols), index=numeric_cols).T
         col_selector_df.index = ["Include"]
+
+        def checkbox_label(col):
+            try:
+                rt = float(col.split("RT ")[-1])
+            except ValueError:
+                return col
+            label = label_map.get(rt)
+            return f"{col} ({label})" if label else col
 
         st.write("Select Retention Times to Include in LCAP:")
         edited_selector = st.data_editor(
             col_selector_df,
             use_container_width=True,
-            column_config={col: st.column_config.CheckboxColumn(required=True) for col in numeric_cols}
+            column_config={col: st.column_config.CheckboxColumn(label=checkbox_label(col), required=True) for col in numeric_cols}
         )
 
         # Get selected columns from checkbox row
@@ -226,12 +349,15 @@ if uploaded_file is not None:
 
         lcap_results = lcap_data.round(2)
         final_df = lcap_results
-        st.dataframe(final_df)
+        st.dataframe(with_label_header(final_df, label_map))
+
+    if label_warnings:
+        st.warning("Peak label conflicts detected:\n\n" + "\n".join(f"- {w}" for w in label_warnings))
 
     # Download intermediate table
     st.download_button(
         label="Download full table",
-        data=convert_df_to_excel(final_df),
+        data=convert_df_to_excel(with_label_header(final_df, label_map)),
         file_name="Area_RT.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
